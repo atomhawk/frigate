@@ -1,4 +1,5 @@
 import PreviewThumbnailPlayer from "@/components/player/PreviewThumbnailPlayer";
+import EventReviewTimeline from "@/components/timeline/EventReviewTimeline";
 import ActivityIndicator from "@/components/ui/activity-indicator";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -12,7 +13,7 @@ import { FrigateConfig } from "@/types/frigateConfig";
 import { ReviewSegment, ReviewSeverity } from "@/types/review";
 import { formatUnixTimestampToDateTime } from "@/utils/dateUtil";
 import axios from "axios";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LuCalendar, LuFilter, LuVideo } from "react-icons/lu";
 import { MdCircle } from "react-icons/md";
 import useSWR from "swr";
@@ -23,6 +24,7 @@ const API_LIMIT = 100;
 export default function Events() {
   const { data: config } = useSWR<FrigateConfig>("config");
   const [severity, setSeverity] = useState<ReviewSeverity>("alert");
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
   // review paging
 
@@ -63,12 +65,15 @@ export default function Events() {
   } = useSWRInfinite<ReviewSegment[]>(getKey, reviewSegmentFetcher);
 
   const reviewItems = useMemo(() => {
+    const all: ReviewSegment[] = [];
     const alerts: ReviewSegment[] = [];
     const detections: ReviewSegment[] = [];
     const motion: ReviewSegment[] = [];
 
     reviewPages?.forEach((page) => {
       page.forEach((segment) => {
+        all.push(segment);
+
         switch (segment.severity) {
           case "alert":
             alerts.push(segment);
@@ -83,13 +88,20 @@ export default function Events() {
       });
     });
 
-    return { alert: alerts, detection: detections, significant_motion: motion };
+    return {
+      all: all,
+      alert: alerts,
+      detection: detections,
+      significant_motion: motion,
+    };
   }, [reviewPages]);
 
   const isDone = useMemo(
     () => (reviewPages?.at(-1)?.length ?? 0) < API_LIMIT,
     [reviewPages]
   );
+
+  // review interaction
 
   const observer = useRef<IntersectionObserver | null>();
   const lastReviewRef = useCallback(
@@ -109,6 +121,34 @@ export default function Events() {
     },
     [isValidating, isDone]
   );
+
+  const minimapRef = useRef<HTMLDivElement | null>(null);
+  const [minimap, setMiniMap] = useState({ start: 0, end: Number.MAX_VALUE });
+  useEffect(() => {
+    if (!contentRef.current || !minimapRef.current) {
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(
+        (entry) => {
+          const start = (entry.target as HTMLElement).dataset.start;
+
+          if (entry.isIntersecting) {
+            console.log("The start has intersected as " + start);
+          } else {
+            console.log("The start has not as " + start);
+          }
+        },
+        { root: contentRef.current }
+      );
+    });
+    observer.observe(minimapRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [contentRef, minimapRef]);
 
   // review status
 
@@ -156,7 +196,7 @@ export default function Events() {
   }
 
   return (
-    <>
+    <div className="w-full h-full overflow-hidden">
       <div className="w-full flex justify-between">
         <ToggleGroup
           type="single"
@@ -208,35 +248,41 @@ export default function Events() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mt-2">
-        {reviewItems[severity]?.map((value, segIdx) => {
-          const lastRow = segIdx == reviewItems[severity].length - 1;
-          const relevantPreview = Object.values(allPreviews || []).find(
-            (preview) =>
-              preview.camera == value.camera &&
-              preview.start < value.start_time &&
-              preview.end > value.end_time
-          );
+      <div className="flex w-full h-full mt-2 overflow-hidden">
+        <div
+          ref={contentRef}
+          className="w-full h-full flex flex-wrap gap-2 overflow-y-auto"
+        >
+          {reviewItems[severity]?.map((value, segIdx) => {
+            const lastRow = segIdx == reviewItems[severity].length - 1;
+            const relevantPreview = Object.values(allPreviews || []).find(
+              (preview) =>
+                preview.camera == value.camera &&
+                preview.start < value.start_time &&
+                preview.end > value.end_time
+            );
 
-          return (
-            <div key={value.id}>
+            return (
               <div
-                ref={lastRow ? lastReviewRef : null}
-                className="relative h-[234px] aspect-video rounded-lg overflow-hidden"
+                key={value.id}
+                ref={lastRow ? lastReviewRef : minimapRef}
+                data-start={value.start_time}
               >
-                <PreviewThumbnailPlayer
-                  review={value}
-                  relevantPreview={relevantPreview}
-                  isMobile={false}
-                  setReviewed={() => setReviewed(value.id)}
-                />
+                <div className="relative h-[234px] aspect-video rounded-lg overflow-hidden">
+                  <PreviewThumbnailPlayer
+                    review={value}
+                    relevantPreview={relevantPreview}
+                    isMobile={false}
+                    setReviewed={() => setReviewed(value.id)}
+                  />
+                </div>
+                {lastRow && !isDone && <ActivityIndicator />}
               </div>
-              {lastRow && !isDone && <ActivityIndicator />}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -265,3 +311,20 @@ function ReviewCalendarButton() {
     </Popover>
   );
 }
+
+/**
+ *         <div className="absolute top-6 bottom-6 right-0">
+          <EventReviewTimeline
+            segmentDuration={60} // seconds per segment
+            timestampSpread={15} // minutes between each major timestamp
+            timelineStart={Math.floor(Date.now() / 1000)} // start of the timeline - all times are numeric, not Date objects
+            timelineDuration={24 * 60 * 60} // in minutes, defaults to 24 hours
+            showMinimap // show / hide the minimap
+            minimapStartTime={Math.floor(Date.now() / 1000) - 35 * 60} // start time of the minimap - the earlier time (eg 1:00pm)
+            minimapEndTime={Math.floor(Date.now() / 1000) - 21 * 60} // end of the minimap - the later time (eg 3:00pm)
+            events={reviewItems.all} // events, including new has_been_reviewed and severity properties
+            severityType={severity} // choose the severity type for the middle line - all other severity types are to the right
+            contentRef={contentRef} // optional content ref where previews are, can be used for observing/scrolling later
+          />
+        </div>
+ */
