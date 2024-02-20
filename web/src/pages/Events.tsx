@@ -103,18 +103,18 @@ export default function Events() {
 
   // review interaction
 
-  const observer = useRef<IntersectionObserver | null>();
+  const pagingObserver = useRef<IntersectionObserver | null>();
   const lastReviewRef = useCallback(
     (node: HTMLElement | null) => {
       if (isValidating) return;
-      if (observer.current) observer.current.disconnect();
+      if (pagingObserver.current) pagingObserver.current.disconnect();
       try {
-        observer.current = new IntersectionObserver((entries) => {
+        pagingObserver.current = new IntersectionObserver((entries) => {
           if (entries[0].isIntersecting && !isDone) {
             setSize(size + 1);
           }
         });
-        if (node) observer.current.observe(node);
+        if (node) pagingObserver.current.observe(node);
       } catch (e) {
         // no op
       }
@@ -122,33 +122,67 @@ export default function Events() {
     [isValidating, isDone]
   );
 
-  const minimapRef = useRef<HTMLDivElement | null>(null);
-  const [minimap, setMiniMap] = useState({ start: 0, end: Number.MAX_VALUE });
+  const [minimap, setMinimap] = useState<string[]>([]);
+  const minimapObserver = useRef<IntersectionObserver | null>();
   useEffect(() => {
-    if (!contentRef.current || !minimapRef.current) {
+    if (!contentRef.current) {
       return;
     }
 
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(
-        (entry) => {
+    const visibleTimestamps = new Set<string>();
+    minimapObserver.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
           const start = (entry.target as HTMLElement).dataset.start;
 
-          if (entry.isIntersecting) {
-            console.log("The start has intersected as " + start);
-          } else {
-            console.log("The start has not as " + start);
+          if (!start) {
+            return;
           }
-        },
-        { root: contentRef.current }
-      );
-    });
-    observer.observe(minimapRef.current);
+
+          if (entry.isIntersecting) {
+            visibleTimestamps.add(start);
+          } else {
+            visibleTimestamps.delete(start);
+          }
+
+          setMinimap([...visibleTimestamps]);
+        });
+      },
+      { root: contentRef.current }
+    );
 
     return () => {
-      observer.disconnect();
+      minimapObserver.current?.disconnect();
     };
-  }, [contentRef, minimapRef]);
+  }, [contentRef]);
+  const minimapRef = useCallback(
+    (node: HTMLElement | null) => {
+      if (!minimapObserver.current) {
+        return;
+      }
+
+      try {
+        if (node) minimapObserver.current.observe(node);
+      } catch (e) {
+        // no op
+      }
+    },
+    [minimapObserver.current]
+  );
+  const minimapBounds = useMemo(() => {
+    const data = {
+      start: Math.floor(Date.now() / 1000) - 35 * 60,
+      end: Math.floor(Date.now() / 1000) - 21 * 60,
+    };
+    const list = minimap.sort();
+
+    if (list.length > 0) {
+      data.end = parseFloat(list.at(-1)!!);
+      data.start = parseFloat(list[0]);
+    }
+
+    return data;
+  }, [minimap]);
 
   // review status
 
@@ -196,8 +230,8 @@ export default function Events() {
   }
 
   return (
-    <div className="w-full h-full overflow-hidden">
-      <div className="w-full flex justify-between">
+    <div className="relative w-full h-full overflow-hidden">
+      <div className="absolute flex justify-between left-0 top-0 right-0">
         <ToggleGroup
           type="single"
           defaultValue="alert"
@@ -248,39 +282,51 @@ export default function Events() {
         </div>
       </div>
 
-      <div className="flex w-full h-full mt-2 overflow-hidden">
-        <div
-          ref={contentRef}
-          className="w-full h-full flex flex-wrap gap-2 overflow-y-auto"
-        >
-          {reviewItems[severity]?.map((value, segIdx) => {
-            const lastRow = segIdx == reviewItems[severity].length - 1;
-            const relevantPreview = Object.values(allPreviews || []).find(
-              (preview) =>
-                preview.camera == value.camera &&
-                preview.start < value.start_time &&
-                preview.end > value.end_time
-            );
+      <div
+        ref={contentRef}
+        className="absolute left-0 top-12 bottom-0 right-28 flex flex-wrap content-start gap-2 overflow-y-auto no-scrollbar"
+      >
+        {reviewItems[severity]?.map((value, segIdx) => {
+          const lastRow = segIdx == reviewItems[severity].length - 1;
+          const relevantPreview = Object.values(allPreviews || []).find(
+            (preview) =>
+              preview.camera == value.camera &&
+              preview.start < value.start_time &&
+              preview.end > value.end_time
+          );
 
-            return (
-              <div
-                key={value.id}
-                ref={lastRow ? lastReviewRef : minimapRef}
-                data-start={value.start_time}
-              >
-                <div className="relative h-[234px] aspect-video rounded-lg overflow-hidden">
-                  <PreviewThumbnailPlayer
-                    review={value}
-                    relevantPreview={relevantPreview}
-                    isMobile={false}
-                    setReviewed={() => setReviewed(value.id)}
-                  />
-                </div>
-                {lastRow && !isDone && <ActivityIndicator />}
+          return (
+            <div
+              key={value.id}
+              ref={lastRow ? lastReviewRef : minimapRef}
+              data-start={value.start_time}
+            >
+              <div className="h-[234px] aspect-video rounded-lg overflow-hidden">
+                <PreviewThumbnailPlayer
+                  review={value}
+                  relevantPreview={relevantPreview}
+                  isMobile={false}
+                  setReviewed={() => setReviewed(value.id)}
+                />
               </div>
-            );
-          })}
-        </div>
+              {lastRow && !isDone && <ActivityIndicator />}
+            </div>
+          );
+        })}
+      </div>
+      <div className="absolute top-0 right-0 bottom-0">
+        <EventReviewTimeline
+          segmentDuration={60} // seconds per segment
+          timestampSpread={15} // minutes between each major timestamp
+          timelineStart={Math.floor(Date.now() / 1000)} // start of the timeline - all times are numeric, not Date objects
+          timelineDuration={24 * 60 * 60} // in minutes, defaults to 24 hours
+          showMinimap // show / hide the minimap
+          minimapStartTime={minimapBounds.start} // start time of the minimap - the earlier time (eg 1:00pm)
+          minimapEndTime={minimapBounds.end} // end of the minimap - the later time (eg 3:00pm)
+          events={reviewItems.all} // events, including new has_been_reviewed and severity properties
+          severityType={severity} // choose the severity type for the middle line - all other severity types are to the right
+          contentRef={contentRef} // optional content ref where previews are, can be used for observing/scrolling later
+        />
       </div>
     </div>
   );
@@ -311,20 +357,3 @@ function ReviewCalendarButton() {
     </Popover>
   );
 }
-
-/**
- *         <div className="absolute top-6 bottom-6 right-0">
-          <EventReviewTimeline
-            segmentDuration={60} // seconds per segment
-            timestampSpread={15} // minutes between each major timestamp
-            timelineStart={Math.floor(Date.now() / 1000)} // start of the timeline - all times are numeric, not Date objects
-            timelineDuration={24 * 60 * 60} // in minutes, defaults to 24 hours
-            showMinimap // show / hide the minimap
-            minimapStartTime={Math.floor(Date.now() / 1000) - 35 * 60} // start time of the minimap - the earlier time (eg 1:00pm)
-            minimapEndTime={Math.floor(Date.now() / 1000) - 21 * 60} // end of the minimap - the later time (eg 3:00pm)
-            events={reviewItems.all} // events, including new has_been_reviewed and severity properties
-            severityType={severity} // choose the severity type for the middle line - all other severity types are to the right
-            contentRef={contentRef} // optional content ref where previews are, can be used for observing/scrolling later
-          />
-        </div>
- */
