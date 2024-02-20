@@ -21,18 +21,12 @@ export const navbarLinks = [
   },
   {
     id: 3,
-    icon: LuFilm,
-    title: "History",
-    url: "/history",
-  },
-  {
-    id: 4,
     icon: LuFileUp,
     title: "Export",
     url: "/export",
   },
   {
-    id: 5,
+    id: 4,
     icon: LuConstruction,
     title: "UI Playground",
     url: "/playground",

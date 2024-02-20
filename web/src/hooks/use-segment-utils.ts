@@ -6,23 +6,17 @@ export const useSegmentUtils = (
   events: ReviewSegment[],
   severityType: string,
 ) => {
-  const getSegmentStart = useCallback(
-    (time: number): number => {
-      return Math.floor(time / segmentDuration) * segmentDuration;
-    },
-    [segmentDuration]
-  );
+  const getSegmentStart = useCallback((time: number): number => {
+    return Math.floor(time / (segmentDuration)) * (segmentDuration);
+  }, [segmentDuration]);
 
-  const getSegmentEnd = useCallback(
-    (time: number | undefined): number => {
-      if (time) {
-        return Math.ceil(time / segmentDuration) * segmentDuration;
-      } else {
-        return Date.now() / 1000 + segmentDuration;
-      }
-    },
-    [segmentDuration]
-  );
+    const getSegmentEnd = useCallback((time: number | undefined): number => {
+        if (time) {
+            return Math.ceil(time / (segmentDuration)) * (segmentDuration);
+        } else {
+            return (Date.now()/1000)+(segmentDuration);
+        }
+  }, [segmentDuration]);
 
   const mapSeverityToNumber = useCallback((severity: string): number => {
     switch (severity) {
@@ -42,34 +36,28 @@ export const useSegmentUtils = (
     [severityType]
   );
 
-  const getSeverity = useCallback(
-    (time: number): number => {
-      const activeEvents = events?.filter((event) => {
-        const segmentStart = getSegmentStart(event.start_time);
-        const segmentEnd = getSegmentEnd(event.end_time);
-        return time >= segmentStart && time < segmentEnd;
-      });
-      if (activeEvents?.length === 0) return 0; // No event at this time
-      const severityValues = activeEvents?.map((event) =>
-        mapSeverityToNumber(event.severity)
-      );
-      return Math.max(...severityValues);
-    },
-    [events, getSegmentStart, getSegmentEnd, mapSeverityToNumber]
-  );
+  const getSeverity = useCallback((time: number): number => {
+    const activeEvents = events?.filter((event) => {
+      const segmentStart = getSegmentStart(event.start_time);
+      const segmentEnd = getSegmentEnd(event.end_time);
+      return time >= segmentStart && time < segmentEnd;
+    });
+    if (activeEvents?.length === 0) return 0; // No event at this time
+    const severityValues = activeEvents?.map((event) =>
+      mapSeverityToNumber(event.severity)
+    );
+    return Math.max(...severityValues);
+  }, [events, getSegmentStart, getSegmentEnd, mapSeverityToNumber]);
 
-  const getReviewed = useCallback(
-    (time: number): boolean => {
-      return events.some((event) => {
-        const segmentStart = getSegmentStart(event.start_time);
-        const segmentEnd = getSegmentEnd(event.end_time);
-        return (
-          time >= segmentStart && time < segmentEnd && event.has_been_reviewed
-        );
-      });
-    },
-    [events, getSegmentStart, getSegmentEnd]
-  );
+  const getReviewed = useCallback((time: number): boolean => {
+    return events.some((event) => {
+      const segmentStart = getSegmentStart(event.start_time);
+      const segmentEnd = getSegmentEnd(event.end_time);
+      return (
+        time >= segmentStart && time < segmentEnd && event.has_been_reviewed
+      );
+    });
+  }, [events, getSegmentStart, getSegmentEnd]);
 
   const shouldShowRoundedCorners = useCallback(
     (segmentTime: number): { roundTop: boolean, roundBottom: boolean } => {
@@ -142,12 +130,5 @@ export const useSegmentUtils = (
     [events, getSegmentStart, getSegmentEnd, segmentDuration, severityType]
   );
 
-  return {
-    getSegmentStart,
-    getSegmentEnd,
-    getSeverity,
-    displaySeverityType,
-    getReviewed,
-    shouldShowRoundedCorners,
-  };
+  return { getSegmentStart, getSegmentEnd, getSeverity, displaySeverityType, getReviewed, shouldShowRoundedCorners };
 };
