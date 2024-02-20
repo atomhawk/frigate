@@ -1,7 +1,6 @@
 import {
   LuConstruction,
   LuFileUp,
-  LuFilm,
   LuFlag,
   LuVideo,
 } from "react-icons/lu";
