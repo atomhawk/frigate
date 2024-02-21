@@ -305,7 +305,6 @@ export default function DesktopEventView() {
                 <PreviewThumbnailPlayer
                   review={value}
                   relevantPreview={relevantPreview}
-                  isMobile={false}
                   setReviewed={() => setReviewed(value.id)}
                 />
               </div>
